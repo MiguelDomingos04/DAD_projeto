@@ -25,10 +25,10 @@ public class DidaMeetingsPaxosServiceImpl extends DidaMeetingsPaxosServiceGrpc.D
  
     @Override
     public void phaseone(DidaMeetingsPaxos.PhaseOneRequest request, StreamObserver<DidaMeetingsPaxos.PhaseOneReply> responseObserver) {
-
+	
 	server_state.waitIfFrozen();
 	server_state.waitIfSlowMode();
-	// System.out.println("Receive phase1 request: \n" + request);
+	System.out.println("Receive phase1 request: \n" + request);
 
 	int instance          = request.getInstance();
 	int ballot            = request.getRequestballot();
@@ -45,7 +45,12 @@ public class DidaMeetingsPaxosServiceImpl extends DidaMeetingsPaxosServiceGrpc.D
 
 	int maxballot = this.server_state.getCurrentBallot();
 
-	// System.out.println("Instance = " + instance + " ballot = " + ballot + " current_ballot = " + this.server_state.getCurrentBallot() + " val = " + value + " valballot = " + valballot + " maxballot = " + maxballot + " accepted = " + accepted);
+	// CHAMADA 2: Antes de enviar resposta
+    if (valballot > 0) {
+        printResponseToLeader(instance, value, valballot); // print para ver o que os acceptors estao a enviar ao leader
+    }
+
+	System.out.println("Instance = " + instance + " ballot = " + ballot + " current_ballot = " + this.server_state.getCurrentBallot() + " val = " + value + " valballot = " + valballot + " maxballot = " + maxballot + " accepted = " + accepted);
 	
 	DidaMeetingsPaxos.PhaseOneReply.Builder response_builder = DidaMeetingsPaxos.PhaseOneReply.newBuilder();
 	response_builder.setInstance(instance);
@@ -182,6 +187,14 @@ public class DidaMeetingsPaxosServiceImpl extends DidaMeetingsPaxosServiceGrpc.D
 		
 	responseObserver.onNext(response);
 	responseObserver.onCompleted();
+    }
+
+
+	private void printResponseToLeader(int instance, int value, int valballot) {
+        System.out.println("ACCEPTOR " + server_state.my_id + " SENDING TO LEADER:");
+        System.out.println("  -> Instance: " + instance);
+        System.out.println("  -> Value: " + value);
+        System.out.println("  -> Ballot: " + valballot);
     }
 
 }

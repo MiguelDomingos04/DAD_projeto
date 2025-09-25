@@ -50,7 +50,6 @@ public class PhaseOneBogusProcessor extends GenericResponseProcessor<DidaMeeting
 
     public synchronized boolean onNext(ArrayList<DidaMeetingsPaxos.PhaseOneReply> all_responses, DidaMeetingsPaxos.PhaseOneReply last_response){
     
-    System.out.println("FODAS!!!!!\n");
     // Update state based on the last received response
     if (last_response.getMaxballot() > this.maxballot) {
         this.maxballot = last_response.getMaxballot();
