@@ -1,0 +1,13 @@
+didameetings/server/DidaMeetingsServerState.class
+didameetings/server/MainLoop$1.class
+didameetings/server/DidaMeetingsMasterServiceImpl.class
+didameetings/server/RequestHistory.class
+didameetings/server/PaxosInstance.class
+didameetings/server/DidaMeetingsPaxosServiceImpl.class
+didameetings/server/DidaMeetingsAction.class
+didameetings/server/PaxosLog.class
+didameetings/server/DidaMeetingsServer.class
+didameetings/server/DidaMeetingsCommand.class
+didameetings/server/MainLoop.class
+didameetings/server/RequestRecord.class
+didameetings/server/DidaMeetingsMainServiceImpl.class
