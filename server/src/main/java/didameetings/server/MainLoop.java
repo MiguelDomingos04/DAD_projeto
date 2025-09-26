@@ -46,7 +46,7 @@ public class MainLoop implements Runnable {
     public MainLoop(DidaMeetingsServerState state) {
         this.server_state = state;
         this.has_work = false;
-        this.next_log_entry = 0;
+        this.next_log_entry = -1;
         this.discovered_instance_values = new ConcurrentHashMap<>();
         this.discovered_instance_ballots = new ConcurrentHashMap<>();
         this.decided_instances = new ConcurrentHashMap<>();
@@ -228,6 +228,13 @@ public class MainLoop implements Runnable {
             
             // PASSO 2: Fazer Phase 1 para cada instância de 0 até max_instance
             for (int instance = 0; instance <= max_instance; instance++) {
+                //VERIFICAR SE A INSTANCIA JA FOI DECIDIDA
+                Integer command_id_aux = this.server_state.getDecidedCommand(instance);
+                if (command_id_aux != null) {
+                    System.out.println("Instance " + instance+ " already decided with command " + command_id_aux);
+                    continue; // Pular para a próxima instância
+                } 
+
                 System.out.println("Running Phase 1 for instance " + instance);
                 
                 ballot_aborted = false;
@@ -646,6 +653,13 @@ public class MainLoop implements Runnable {
                 // Usar comando já decidido
                 int decided_command = decided_instances.get(entry_number);
 
+                Integer command_id_aux1 = this.server_state.getDecidedCommand(entry_number);
+                if (command_id_aux1 != null) {
+                    System.out.println("Instance " + entry_number + " already decided with command " + command_id_aux1);
+                    return; // Pular para a próxima instância
+                } 
+
+
                 if (this.server_state.isCommandAlreadyDecided(decided_command)) {
                         Integer decided_instance = this.server_state.findInstanceByRequestId(decided_command);
                         System.out.println("Request " + decided_command + " already decided in instance " + decided_instance + " - terminating processEntry");
@@ -669,6 +683,14 @@ public class MainLoop implements Runnable {
                     System.out.println("Instance " + entry_number + " not decided, processing request " + request_record.getId());
                     
                     int command_id = request_record.getId();
+
+                    Integer command_id_aux2 = this.server_state.getDecidedCommand(entry_number);
+                    if (command_id_aux2 != null) {
+                        System.out.println("Instance " + entry_number + " already decided with command " + command_id_aux2);
+                        return; // Pular para a próxima instância
+                    } 
+
+
                     // verificação se o comando já foi decidido noutra instância
                     if (this.server_state.isCommandAlreadyDecided(command_id)) {
                         Integer decided_instance = this.server_state.findInstanceByRequestId(command_id);
