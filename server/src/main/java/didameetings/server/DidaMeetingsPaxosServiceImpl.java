@@ -32,6 +32,39 @@ public class DidaMeetingsPaxosServiceImpl extends DidaMeetingsPaxosServiceGrpc.D
 
 	int instance          = request.getInstance();
 	int ballot            = request.getRequestballot();
+
+
+	// ADIÇÃO MÍNIMA: Se instance == -1, responder com instância máxima que o acceptor conhece
+    if (instance == -1) {
+        boolean accepted = (ballot >= this.server_state.getCurrentBallot());
+        if (accepted) {
+            this.server_state.setCurrentBallot(ballot);
+        }
+        
+        int max_instance = this.server_state.paxos_log.length() - 1;
+        int maxballot = this.server_state.getCurrentBallot();
+        
+        System.out.println("Max instance discovery answer: returning max_instance=" + max_instance + 
+                          ", accepted=" + accepted);
+        
+        // Responder com instância máxima no campo 'value'
+        DidaMeetingsPaxos.PhaseOneReply response = DidaMeetingsPaxos.PhaseOneReply.newBuilder()
+            .setInstance(-1)
+            .setServerid(this.server_state.my_id)
+            .setRequestballot(ballot)
+            .setAccepted(accepted)
+            .setValue(max_instance)  // INSTÂNCIA MÁXIMA AQUI
+            .setValballot(-1)
+            .setMaxballot(maxballot)
+            .build();
+        
+        responseObserver.onNext(response);
+        responseObserver.onCompleted();
+        return;
+    }
+
+
+
 	PaxosInstance entry   = this.server_state.paxos_log.testAndSetEntry(instance, ballot);
 	boolean accepted      = false;
 	int  value            = entry.command_id;

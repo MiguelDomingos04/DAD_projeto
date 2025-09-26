@@ -1,5 +1,7 @@
 package didameetings.server;
 
+import java.util.concurrent.ConcurrentHashMap;
+
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -38,12 +40,16 @@ public class MainLoop implements Runnable {
     private final ConcurrentHashMap<Integer, Integer> discovered_instance_values;
     private final ConcurrentHashMap<Integer, Integer> discovered_instance_ballots;
 
+    //Guarda os valores decididos: instance_number → command_id -> ou seja o que é decidido no final da phase 1
+    private final ConcurrentHashMap<Integer, Integer> decided_instances;
+
     public MainLoop(DidaMeetingsServerState state) {
         this.server_state = state;
         this.has_work = false;
         this.next_log_entry = 0;
         this.discovered_instance_values = new ConcurrentHashMap<>();
         this.discovered_instance_ballots = new ConcurrentHashMap<>();
+        this.decided_instances = new ConcurrentHashMap<>();
     }
 
     public void run() {
@@ -51,7 +57,6 @@ public class MainLoop implements Runnable {
             if (this.server_state.scheduler.leader(this.server_state.getCurrentBallot()) == this.server_state.my_id) {
                 if (phaseOneDone == false) {
                     System.out.println("I am the leader for ballot " + this.server_state.getCurrentBallot());
-                    System.out.println("BORA!!!\n");
                     this.doMultiPaxosPhaseOne();
                     phaseOneDone = true;
                 }
@@ -76,17 +81,19 @@ public class MainLoop implements Runnable {
     }
 
     /**
-     * MultiPaxos Fase 1 - Descobrir valores de todas as instâncias dos acceptors
+     * MultiPaxos Fase 1 - Descobrir valores de todas as instâncias dos acceptors ----->ANTIGA
      */
+    /*
     public synchronized void doMultiPaxosPhaseOne() {
         int ballot = this.server_state.getCurrentBallot();
         int completed_ballot = this.server_state.getCompletedBallot();
+
 
         List<Integer> acceptors = this.server_state.scheduler.acceptors(ballot);
         int quorum = this.server_state.scheduler.quorum(ballot);
         int n_acceptors = acceptors.size();
 		System.out.println("1111\n");
-        if ((ballot > -2) && (this.server_state.scheduler.leader(ballot) == this.server_state.my_id)) {
+        if ((ballot > -1) && (this.server_state.scheduler.leader(ballot) == this.server_state.my_id)) {
             System.out.println("MultiPaxos Phase 1: Discovering all instance values from acceptors");
 
             ballot_aborted = false;
@@ -134,6 +141,193 @@ public class MainLoop implements Runnable {
             }
         }
     }
+
+    */
+
+
+
+
+
+
+    /**
+     * Descobrir o log length máximo entre os acceptors no quorum ----->NOVO
+     */
+    public synchronized void doMultiPaxosPhaseOne() {
+        int ballot = this.server_state.getCurrentBallot();
+        int completed_ballot = this.server_state.getCompletedBallot();
+
+        List<Integer> acceptors = this.server_state.scheduler.acceptors(ballot);
+        int quorum = this.server_state.scheduler.quorum(ballot);
+        int n_acceptors = acceptors.size();
+
+        if ((ballot > -1) && (this.server_state.scheduler.leader(ballot) == this.server_state.my_id)) {
+            System.out.println("MultiPaxos Phase 1: Discovering all instance values from acceptors");
+
+            // PASSO 1: Descobrir instância máxima
+            int max_instance = discoverMaxInstance(acceptors, ballot, n_acceptors);
+            if (ballot_aborted) {
+                return; // Se descoberta falhou, sair
+            }
+
+            if (max_instance < 0) {
+                System.out.println("No instances found - MultiPaxos Phase 1 complete");
+                return;
+            }
+            
+            System.out.println("Max instance discovered: " + max_instance);
+
+            // PASSO 2: Fazer Phase 1 com contador para cada instância
+            int instance_counter = 0; // CONTADOR PARA RASTREAR INSTÂNCIAS
+            
+            // PASSO 2: Fazer Phase 1 para cada instância de 0 até max_instance
+            for (int instance = 0; instance <= max_instance; instance++) {
+                System.out.println("Running Phase 1 for instance " + instance);
+                
+                ballot_aborted = false;
+                
+                // Usar o PhaseOneBogusProcessor existente
+                PhaseOneBogusProcessor phase_one_processor = 
+                    new PhaseOneBogusProcessor(this.server_state.scheduler, completed_ballot, ballot, quorum);
+
+                ArrayList<DidaMeetingsPaxos.PhaseOneReply> phase_one_responses = new ArrayList<>();
+                GenericResponseCollector<DidaMeetingsPaxos.PhaseOneReply> phase_one_collector = 
+                    new GenericResponseCollector<>(phase_one_responses, n_acceptors, phase_one_processor);
+
+                // Enviar pedidos para esta instância específica
+                for (int i = 0; i < n_acceptors; i++) {
+                    DidaMeetingsPaxos.PhaseOneRequest.Builder phase_one_request_builder = 
+                        DidaMeetingsPaxos.PhaseOneRequest.newBuilder();
+                    phase_one_request_builder.setRequestballot(ballot);
+                    phase_one_request_builder.setInstance(instance); // DEFINIR A INSTÂNCIA ESPECÍFICA
+
+                    DidaMeetingsPaxos.PhaseOneRequest phase_one_request = phase_one_request_builder.build();
+                    System.out.println("Sending Phase 1 to acceptor " + acceptors.get(i) + 
+                                    " for instance " + instance + ": " + phase_one_request);
+
+                    CollectorStreamObserver<DidaMeetingsPaxos.PhaseOneReply> phase_one_observer = 
+                        new CollectorStreamObserver<>(phase_one_collector);
+                    this.server_state.async_stubs[acceptors.get(i)].phaseone(phase_one_request, phase_one_observer);
+                }
+
+                // Aguardar respostas para esta instância
+                phase_one_collector.waitUntilDone();
+                
+                if (phase_one_processor.getAccepted() == false) {
+                    ballot_aborted = true;
+                    int maxballot = phase_one_processor.getMaxballot();
+                    if (maxballot > this.server_state.getCurrentBallot()) {
+                        this.server_state.setCurrentBallot(maxballot);
+                    }
+                    System.out.println("Phase 1 for instance " + instance + " rejected. MaxBallot: " + maxballot);
+                    break; // Sair do loop se rejeitado
+                } else {
+                    // Armazenar valores descobertos para esta instância
+                    //storeDiscoveredValuesForInstance(instance, phase_one_processor); //----->ANTIGA
+                    storeDecidedValueForInstance(instance_counter, phase_one_processor);
+                    instance_counter++; // Incrementar contador de instâncias
+                    System.out.println("Phase 1 for instance " + instance + " completed successfully");
+                }
+            }
+
+            System.out.println("MultiPaxos Phase 1 completed. Discovered " + 
+                            discovered_instance_values.size() + " instances with values");
+        }
+    }
+
+
+
+    /**
+     * Verificar se instância já foi decidida ------>NOVO
+     */
+    private boolean isInstanceDecided(int instance) {
+        return decided_instances.containsKey(instance);
+    }
+
+    /**
+     * Obter comando decidido para instância (se existir) ------>NOVO
+     */
+    private Integer getDecidedCommand(int instance) {
+        return decided_instances.get(instance);
+    }
+
+
+    /**
+     * Armazenar valor decidido: instance_number → command_id ------>NOVO
+     */
+    private void storeDecidedValueForInstance(int instance_number, PhaseOneBogusProcessor processor) {
+        if (processor.getValballot() > 0) { // Se há valor decidido
+            int command_id = processor.getValue();
+            
+            // ARMAZENAR: instância → comando decidido
+            decided_instances.put(instance_number, command_id);
+            
+            System.out.println("✓ Instance " + instance_number + " DECIDED with command " + command_id);
+        } else {
+            System.out.println("○ Instance " + instance_number + " not decided yet");
+        }
+    }
+
+    /**
+ * FUNÇÃO AUXILIAR: Descobrir instância máxima dos acceptors
+ */
+    private int discoverMaxInstance(List<Integer> acceptors, int ballot, int n_acceptors) {
+        System.out.println("Discovering max instance from acceptors...");
+        
+        ArrayList<DidaMeetingsPaxos.PhaseOneReply> discovery_responses = new ArrayList<>();
+        GenericResponseCollector<DidaMeetingsPaxos.PhaseOneReply> discovery_collector = 
+            new GenericResponseCollector<>(discovery_responses, n_acceptors);
+
+        // Enviar pedido especial com instance = -1 para descobrir máximo
+        for (int i = 0; i < n_acceptors; i++) {
+            DidaMeetingsPaxos.PhaseOneRequest.Builder discovery_request_builder = 
+                DidaMeetingsPaxos.PhaseOneRequest.newBuilder();
+            discovery_request_builder.setRequestballot(ballot);
+            discovery_request_builder.setInstance(-1); // -1 = descobrir máximo
+
+            CollectorStreamObserver<DidaMeetingsPaxos.PhaseOneReply> discovery_observer = 
+                new CollectorStreamObserver<>(discovery_collector);
+            this.server_state.async_stubs[acceptors.get(i)].phaseone(discovery_request_builder.build(), discovery_observer);
+        }
+
+        discovery_collector.waitUntilDone();
+
+        // Encontrar a instância máxima
+        int max_instance = -1;
+        for (DidaMeetingsPaxos.PhaseOneReply response : discovery_responses) {
+            if (!response.getAccepted()) {
+                ballot_aborted = true;
+                this.server_state.setCurrentBallot(Math.max(this.server_state.getCurrentBallot(), response.getMaxballot()));
+                System.out.println("Discovery rejected by acceptor " + response.getServerid());
+                return -1;
+            }
+            
+            int acceptor_max = response.getValue(); // Instância máxima no campo value
+            if (acceptor_max > max_instance) {
+                max_instance = acceptor_max;
+            }
+            System.out.println("Acceptor " + response.getServerid() + " max instance: " + acceptor_max);
+        }
+        
+        return Math.max(max_instance, 0); // Pelo menos instância 0
+    }
+
+    /**
+     * FUNÇÃO AUXILIAR: Armazenar valores descobertos para uma instância específica ------>nao esta a ser usada
+     */
+    private void storeDiscoveredValuesForInstance(int instance, PhaseOneBogusProcessor processor) {
+        if (processor.getValballot() > 0) {
+            int value = processor.getValue();
+            int ballot = processor.getValballot();
+            
+            discovered_instance_values.put(instance, value);
+            discovered_instance_ballots.put(instance, ballot);
+            
+            System.out.println("Stored discovered value for instance " + instance + 
+                            ": value=" + value + ", ballot=" + ballot);
+        }
+    }
+
+    
 
     /**
      * Armazenar valores descobertos nas estruturas de dados
