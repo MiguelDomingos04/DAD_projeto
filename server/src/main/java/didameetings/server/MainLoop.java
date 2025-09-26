@@ -80,7 +80,7 @@ public class MainLoop implements Runnable {
                 while (Thread.activeCount() > 30) {
                     try {
                         Thread.sleep(100);
-                        System.out.println("Waiting for threads to finish. Active: " + Thread.activeCount());
+                        //System.out.println("Waiting for threads to finish. Active: " + Thread.activeCount());
                     } catch (InterruptedException e) {
                         Thread.currentThread().interrupt();
                         return; // Sair do método run()
@@ -641,10 +641,20 @@ public class MainLoop implements Runnable {
         
         if ((ballot > -1) && (this.server_state.scheduler.leader(ballot) == this.server_state.my_id)) {
             
-            // VERIFICAR SE ESTA INSTÂNCIA JÁ FOI DECIDIDA NA PHASE 1
+            // VERIFICAR SE ESTA INSTÂNCIA JÁ FOI ESCOLHIDA NA PHASE 1
             if (decided_instances.containsKey(entry_number)) {
                 // Usar comando já decidido
                 int decided_command = decided_instances.get(entry_number);
+
+                if (this.server_state.isCommandAlreadyDecided(decided_command)) {
+                        Integer decided_instance = this.server_state.findInstanceByRequestId(decided_command);
+                        System.out.println("Request " + decided_command + " already decided in instance " + decided_instance + " - terminating processEntry");
+                        
+                        // Finalizar imediatamente
+                        return;
+                }
+
+
                 System.out.println("Instance " + entry_number + " already decided with command " + decided_command);
                 
                 next_entry.command_id = decided_command;
