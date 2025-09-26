@@ -318,6 +318,7 @@ public class MainLoop implements Runnable {
 
     /**
      * Paxos Phase Two - Acceptor ----->REMOVIDO, agora está inline no processEntry --------->NOVO DO NOVO
+     * Useu quorum -1 porque o lider nao responde a si proprio
       */
     private int discoverMaxInstance(List<Integer> acceptors, int ballot, int n_acceptors) {
     System.out.println("Discovering max instance from acceptors...");
@@ -686,7 +687,7 @@ public class MainLoop implements Runnable {
     RequestRecord request_record = this.server_state.req_history.getIfPending(next_entry.command_id);
     
     if (request_record == null) {
-        System.out.println("⚠️  Command " + next_entry.command_id + " not found in our pending requests");
+        System.out.println("Command " + next_entry.command_id + " not found in our pending requests");
         System.out.println("   → Could be from another client or old decision");
         return; // Não fazemos nada - comando não é nosso
     }

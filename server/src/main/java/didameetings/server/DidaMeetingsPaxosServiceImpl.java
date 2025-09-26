@@ -41,7 +41,8 @@ public class DidaMeetingsPaxosServiceImpl extends DidaMeetingsPaxosServiceGrpc.D
             this.server_state.setCurrentBallot(ballot);
         }
         
-        int max_instance = this.server_state.paxos_log.length() - 1;
+        //int max_instance = this.server_state.paxos_log.length() - 1;
+		int max_instance = this.server_state.paxos_log.getMaxInstance();
         int maxballot = this.server_state.getCurrentBallot();
         
         System.out.println("Max instance discovery answer: returning max_instance=" + max_instance + 
@@ -101,6 +102,8 @@ public class DidaMeetingsPaxosServiceImpl extends DidaMeetingsPaxosServiceGrpc.D
 	responseObserver.onNext(response);
 	responseObserver.onCompleted();
     }
+
+
 
     @Override
     public void phasetwo(DidaMeetingsPaxos.PhaseTwoRequest request, StreamObserver<DidaMeetingsPaxos.PhaseTwoReply> responseObserver) {
