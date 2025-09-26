@@ -61,8 +61,19 @@ public class MainLoop implements Runnable {
                     phaseOneDone = true;
                 }
 
+                //this.next_log_entry++;
+                //this.processEntry(this.next_log_entry);
+
+
                 this.next_log_entry++;
-                this.processEntry(this.next_log_entry);
+                final int entryToProcess = this.next_log_entry;
+                Thread processThread = new Thread(() -> {
+                    this.processEntry(entryToProcess);
+                }, "ProcessEntry-" + entryToProcess);
+
+                processThread.start();
+
+
             } else {
                 try {
                     Thread.sleep(100); // evita busy loop
@@ -71,6 +82,7 @@ public class MainLoop implements Runnable {
                 // Limpar descobertas quando perde liderança
                 discovered_instance_values.clear();
                 discovered_instance_ballots.clear();
+                decided_instances.clear();
             }
         }
     }
