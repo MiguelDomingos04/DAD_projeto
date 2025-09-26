@@ -645,7 +645,7 @@ public class MainLoop implements Runnable {
             if (decided_instances.containsKey(entry_number)) {
                 // Usar comando já decidido
                 int decided_command = decided_instances.get(entry_number);
-                System.out.println("✓ Instance " + entry_number + " already decided with command " + decided_command);
+                System.out.println("Instance " + entry_number + " already decided with command " + decided_command);
                 
                 next_entry.command_id = decided_command;
                 next_entry.decided = true;
@@ -656,8 +656,22 @@ public class MainLoop implements Runnable {
                 RequestRecord request_record = this.server_state.req_history.getFirstPending();
                 
                 if (request_record != null) {
-                    System.out.println("→ Instance " + entry_number + " not decided, processing request " + request_record.getId());
+                    System.out.println("Instance " + entry_number + " not decided, processing request " + request_record.getId());
                     
+                    int command_id = request_record.getId();
+                    // verificação se o comando já foi decidido noutra instância
+                    if (this.server_state.isCommandAlreadyDecided(command_id)) {
+                        Integer decided_instance = this.server_state.findInstanceByRequestId(command_id);
+                        System.out.println("Request " + command_id + " already decided in instance " + decided_instance + " - terminating processEntry");
+                        
+                        // Responder ao cliente
+                        request_record.setResponse(true);
+                        this.server_state.req_history.moveToProcessed(command_id);
+                        
+                        // Finalizar imediatamente
+                        return;
+                    }
+
                     ballot_aborted = false;
                     int new_command = request_record.getId();
                     

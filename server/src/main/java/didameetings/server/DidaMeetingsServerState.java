@@ -2,6 +2,9 @@ package didameetings.server;
 
 import java.util.*;
 
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.Map;
+
 import didameetings.core.*;
 import didameetings.configs.*;
 import didameetings.configs.ConfigurationScheduler;
@@ -39,6 +42,7 @@ public class DidaMeetingsServerState {
 	private volatile boolean isFrozen = false;
 	private volatile boolean isSlowMode = false;
 	private int slowDelay = 0;
+	private final ConcurrentHashMap<Integer, Integer> decided_instance_learners; //Para guradar id de requests de instancias ja decididas/finalizadas
 
 	private final Object lock = new Object();
 
@@ -56,6 +60,7 @@ public class DidaMeetingsServerState {
 	this.req_history      = new RequestHistory();
 	this.paxos_log        = new PaxosLog();
 	this.main_loop        = new MainLoop(this);
+	this.decided_instance_learners = new ConcurrentHashMap<>();
 
 	// init comms
 	this.all_participants = this.scheduler.allparticipants ();
@@ -141,6 +146,48 @@ public class DidaMeetingsServerState {
 	}
 	return this.completed_ballot;
     }
+
+
+
+
+	//Metodos para lidar com lista de requests decided 
+	public synchronized void recordDecision(int instance, int command_id) {
+		decided_instance_learners.put(instance, command_id);
+		System.out.println("✓ DECISION RECORDED: Instance " + instance + " → Command " + command_id);
+	}
+
+	public synchronized boolean isCommandAlreadyDecided(int command_id) {
+		return decided_instance_learners.containsValue(command_id);
+	}
+
+	public synchronized Integer getDecidedCommand(int instance) {
+		return decided_instance_learners.get(instance);
+	}
+
+	// ★ NOVO: Procurar instância onde um request_id foi decidido ★
+	public synchronized Integer findInstanceByRequestId(int request_id) {
+		for (Map.Entry<Integer, Integer> entry : decided_instance_learners.entrySet()) {
+			if (entry.getValue() == request_id) {
+				return entry.getKey(); // Retorna a instância onde foi decidido
+			}
+		}
+		return null; // Request não foi encontrado
+	}
+
+	//Verificar se um request_id específico já foi decidido e em que instância ★
+	public synchronized String getRequestDecisionInfo(int request_id) {
+		Integer instance = findInstanceByRequestId(request_id);
+		if (instance != null) {
+			return "Request " + request_id + " was decided in instance " + instance;
+		} else {
+			return "Request " + request_id + " not decided yet";
+		}
+	}
+
+
+
+
+
 
     public synchronized int getDebugMode () {
 	return this.debug_mode;
