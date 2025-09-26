@@ -64,7 +64,7 @@ public class MainLoop implements Runnable {
                 //this.next_log_entry++;
                 //this.processEntry(this.next_log_entry);
 
-
+                /*
                 this.next_log_entry++;
                 final int entryToProcess = this.next_log_entry;
                 Thread processThread = new Thread(() -> {
@@ -72,6 +72,30 @@ public class MainLoop implements Runnable {
                 }, "ProcessEntry-" + entryToProcess);
 
                 processThread.start();
+                */
+
+
+
+                final int entryToProcess = this.next_log_entry;
+                Thread processThread = new Thread(() -> {
+                    try {
+                        this.processEntry(entryToProcess);
+                    } finally {
+                        // FORÇAR destruição da thread após processEntry() terminar
+                        Thread.currentThread().interrupt(); // Marcar thread para interrupção
+                        return; // Sair imediatamente do run(), destruindo a thread
+                    }
+                }, "ProcessEntry-" + entryToProcess);
+
+                processThread.start();
+
+                // Pequena pausa para evitar saturar o thread pool
+                try {
+                    Thread.sleep(40); // 40ms entre criação de tasks
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
 
 
             } else {
