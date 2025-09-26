@@ -270,6 +270,7 @@ public class MainLoop implements Runnable {
     /**
  * FUNÇÃO AUXILIAR: Descobrir instância máxima dos acceptors
  */
+    /*
     private int discoverMaxInstance(List<Integer> acceptors, int ballot, int n_acceptors) {
         System.out.println("Discovering max instance from acceptors...");
         
@@ -310,6 +311,87 @@ public class MainLoop implements Runnable {
         
         return Math.max(max_instance, 0); // Pelo menos instância 0
     }
+    */
+
+
+
+
+    /**
+     * Paxos Phase Two - Acceptor ----->REMOVIDO, agora está inline no processEntry --------->NOVO DO NOVO
+      */
+    private int discoverMaxInstance(List<Integer> acceptors, int ballot, int n_acceptors) {
+    System.out.println("Discovering max instance from acceptors...");
+    
+    // Calcular quorum necessário
+    int quorum = this.server_state.scheduler.quorum(ballot);
+    System.out.println("Waiting for quorum: " + quorum + "/" + n_acceptors + " acceptors");
+    
+    ArrayList<DidaMeetingsPaxos.PhaseOneReply> discovery_responses = new ArrayList<>();
+    GenericResponseCollector<DidaMeetingsPaxos.PhaseOneReply> discovery_collector =
+        new GenericResponseCollector<>(discovery_responses, n_acceptors);
+
+    // Enviar pedido especial com instance = -1 para descobrir máximo
+    for (int i = 0; i < n_acceptors; i++) {
+        DidaMeetingsPaxos.PhaseOneRequest.Builder discovery_request_builder =
+            DidaMeetingsPaxos.PhaseOneRequest.newBuilder();
+        discovery_request_builder.setRequestballot(ballot);
+        discovery_request_builder.setInstance(-1); // -1 = descobrir máximo
+
+        CollectorStreamObserver<DidaMeetingsPaxos.PhaseOneReply> discovery_observer =
+            new CollectorStreamObserver<>(discovery_collector);
+        this.server_state.async_stubs[acceptors.get(i)].phaseone(discovery_request_builder.build(), discovery_observer);
+    }
+
+    // MUDANÇA: Esperar apenas pelo quorum, não por todos
+    discovery_collector.waitForQuorum(quorum - 1);
+    
+    // Verificar se conseguimos quorum
+    if (discovery_responses.size() < quorum - 1) {
+        System.out.println("Failed to get quorum for discovery: " + discovery_responses.size() + "/" + quorum);
+        ballot_aborted = true;
+        return -1;
+    }
+    
+    System.out.println("Got quorum for discovery: " + discovery_responses.size() + "/" + quorum + " responses");
+
+    // Encontrar a instância máxima das respostas recebidas
+    int max_instance = -1;
+    int accepted_count = 0;
+    
+    for (DidaMeetingsPaxos.PhaseOneReply response : discovery_responses) {
+        if (!response.getAccepted()) {
+            ballot_aborted = true;
+            this.server_state.setCurrentBallot(Math.max(this.server_state.getCurrentBallot(), response.getMaxballot()));
+            System.out.println("Discovery rejected by acceptor " + response.getServerid() + 
+                             " with maxballot " + response.getMaxballot());
+            return -1;
+        }
+        
+        accepted_count++;
+        int acceptor_max = response.getValue(); // Instância máxima no campo value
+        if (acceptor_max > max_instance) {
+            max_instance = acceptor_max;
+        }
+        System.out.println("Acceptor " + response.getServerid() + " max instance: " + acceptor_max);
+    }
+    
+    // Verificar se temos quorum de accepts
+    if (accepted_count < quorum -1) {
+        System.out.println("Not enough accepts for discovery: " + accepted_count + "/" + quorum);
+        ballot_aborted = true;
+        return -1;
+    }
+    
+    System.out.println("Discovery successful with " + accepted_count + "/" + n_acceptors + 
+                      " accepts, max instance found: " + max_instance);
+    
+    return Math.max(max_instance, 0); // Pelo menos instância 0
+    }
+
+
+
+
+
 
     /**
      * FUNÇÃO AUXILIAR: Armazenar valores descobertos para uma instância específica ------>nao esta a ser usada
