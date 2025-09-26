@@ -74,28 +74,39 @@ public class MainLoop implements Runnable {
                 processThread.start();
                 */
 
+               this.next_log_entry++;
 
+                // Controlo de threads ativas para evitar OutOfMemoryError
+                while (Thread.activeCount() > 30) {
+                    try {
+                        Thread.sleep(100);
+                        System.out.println("Waiting for threads to finish. Active: " + Thread.activeCount());
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        return; // Sair do método run()
+                    }
+                }
 
                 final int entryToProcess = this.next_log_entry;
                 Thread processThread = new Thread(() -> {
                     try {
                         this.processEntry(entryToProcess);
                     } finally {
-                        // FORÇAR destruição da thread após processEntry() terminar
-                        Thread.currentThread().interrupt(); // Marcar thread para interrupção
-                        return; // Sair imediatamente do run(), destruindo a thread
+                        // Thread automaticamente destruída quando termina
+                        System.out.println("Thread ProcessEntry-" + entryToProcess + " finished");
                     }
                 }, "ProcessEntry-" + entryToProcess);
 
                 processThread.start();
 
-                // Pequena pausa para evitar saturar o thread pool
+                // Pausa entre criação de threads
                 try {
-                    Thread.sleep(40); // 40ms entre criação de tasks
+                    Thread.sleep(400); // 400ms entre criação de threads
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
-                    break;
+                    return; // Sair do método run()
                 }
+
 
 
             } else {
