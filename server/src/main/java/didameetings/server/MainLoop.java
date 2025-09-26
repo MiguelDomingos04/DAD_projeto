@@ -366,6 +366,7 @@ public class MainLoop implements Runnable {
         }
     }
 
+    /*
     public synchronized void processEntry(int entry_number) {
         PaxosInstance next_entry = this.server_state.paxos_log.testAndSetEntry(entry_number);
 
@@ -496,6 +497,200 @@ public class MainLoop implements Runnable {
         request_record.setResponse(result);
         this.server_state.req_history.moveToProcessed(request_record.getId());
     }
+    */
 
     // Classes auxiliares - REMOVIDAS, usando ConcurrentHashMap diretamente
+
+
+
+    public synchronized void processEntry(int entry_number) {
+    PaxosInstance next_entry = this.server_state.paxos_log.testAndSetEntry(entry_number);
+
+    while (next_entry.decided == false) {
+        int ballot = this.server_state.getCurrentBallot();
+        
+        if ((ballot > -1) && (this.server_state.scheduler.leader(ballot) == this.server_state.my_id)) {
+            
+            // VERIFICAR SE ESTA INSTÂNCIA JÁ FOI DECIDIDA NA PHASE 1
+            if (decided_instances.containsKey(entry_number)) {
+                // Usar comando já decidido
+                int decided_command = decided_instances.get(entry_number);
+                System.out.println("✓ Instance " + entry_number + " already decided with command " + decided_command);
+                
+                next_entry.command_id = decided_command;
+                next_entry.decided = true;
+                this.server_state.setCompletedBallot(ballot);
+                
+            } else {
+                // Instância não decidida → usar request da fila e fazer Phase 2
+                RequestRecord request_record = this.server_state.req_history.getFirstPending();
+                
+                if (request_record != null) {
+                    System.out.println("→ Instance " + entry_number + " not decided, processing request " + request_record.getId());
+                    
+                    ballot_aborted = false;
+                    int new_command = request_record.getId();
+                    
+                    // === EXECUTAR PHASE 2 (INLINE) ===
+                    List<Integer> acceptors = this.server_state.scheduler.acceptors(ballot);
+                    int quorum = this.server_state.scheduler.quorum(ballot);
+                    int n_acceptors = acceptors.size();
+                    
+                    System.out.println("Executing Phase 2 for instance " + entry_number + " with value " + new_command);
+
+                    DidaMeetingsPaxos.PhaseTwoRequest.Builder phase_two_request = 
+                        DidaMeetingsPaxos.PhaseTwoRequest.newBuilder();
+                    phase_two_request.setInstance(entry_number);
+                    phase_two_request.setRequestballot(ballot);
+                    phase_two_request.setValue(new_command);
+
+                    PhaseTwoResponseProcessor phase_two_processor = new PhaseTwoResponseProcessor(quorum);
+
+                    ArrayList<DidaMeetingsPaxos.PhaseTwoReply> phase_two_responses = new ArrayList<>();
+                    GenericResponseCollector<DidaMeetingsPaxos.PhaseTwoReply> phase_two_collector = 
+                        new GenericResponseCollector<>(phase_two_responses, n_acceptors, phase_two_processor);
+                    
+                    for (int i = 0; i < n_acceptors; i++) {
+                        CollectorStreamObserver<DidaMeetingsPaxos.PhaseTwoReply> phase_two_observer = 
+                            new CollectorStreamObserver<>(phase_two_collector);
+                        this.server_state.async_stubs[acceptors.get(i)].phasetwo(
+                            phase_two_request.build(), phase_two_observer);
+                    }
+
+                    System.out.println("Waiting for Phase 2 responses...");
+                    phase_two_collector.waitUntilDone();
+                    
+                    if (phase_two_processor.getAccepted() == false) {
+                        ballot_aborted = true;
+                        this.server_state.setCurrentBallot(phase_two_processor.getMaxballot());
+                        System.out.println("Phase 2 for instance " + entry_number + " rejected");
+                    } else {
+                        System.out.println("Phase 2 for instance " + entry_number + " accepted");
+                    }
+                    // === FIM PHASE 2 ===
+                    
+                    if (!ballot_aborted) {
+                        next_entry.command_id = new_command;
+                        next_entry.decided = true;
+                        this.server_state.setCompletedBallot(ballot);
+                        
+                        System.out.println("✓ Instance " + entry_number + " decided with new command " + new_command);
+                    } else {
+                        System.out.println("✗ Instance " + entry_number + " failed - will retry");
+                    }
+                } else {
+                    System.out.println("→ Instance " + entry_number + " not decided, no pending requests - waiting");
+                }
+            }
+        }
+        
+        if (next_entry.decided == false) {
+            System.out.println("Entry " + entry_number + " waiting for decision");
+            this.has_work = false;
+            while (this.has_work == false) {
+                try {
+                    wait();
+                } catch (InterruptedException e) {
+                }
+            }
+        }
+    }
+
+    // === PROCESSAR COMANDO DECIDIDO (INLINE) ===
+    System.out.println("=== PROCESSING DECIDED COMMAND ===");
+    System.out.println("Instance: " + entry_number + ", Command ID: " + next_entry.command_id);
+    
+    // PASSO 1: Procurar o request correspondente
+    RequestRecord request_record = this.server_state.req_history.getIfPending(next_entry.command_id);
+    
+    if (request_record == null) {
+        System.out.println("⚠️  Command " + next_entry.command_id + " not found in our pending requests");
+        System.out.println("   → Could be from another client or old decision");
+        return; // Não fazemos nada - comando não é nosso
+    }
+
+    System.out.println("✓ Found request record for command " + next_entry.command_id);
+    
+    // PASSO 2: Extrair o comando a executar
+    DidaMeetingsCommand command = request_record.getRequest();
+    DidaMeetingsAction action = command.getAction();
+    
+    System.out.println("Command details:");
+    System.out.println("  → Action: " + action);
+    System.out.println("  → Meeting ID: " + command.getMeetingId());
+    System.out.println("  → Participant ID: " + command.getParticipantId());
+    System.out.println("  → Topic ID: " + command.getTopicId());
+
+    // PASSO 3: EXECUTAR O COMANDO (INLINE)
+    boolean result = false;
+    
+    System.out.println("Executing command: " + action);
+
+    try {
+        switch (action) {
+            case OPEN:
+                System.out.println("  → Opening meeting " + command.getMeetingId() + 
+                                 " with max " + this.server_state.max_participants + " participants");
+                result = this.server_state.meeting_manager.open(
+                    command.getMeetingId(), 
+                    this.server_state.max_participants
+                );
+                break;
+                
+            case ADD:
+                System.out.println("  → Adding participant " + command.getParticipantId() + 
+                                 " to meeting " + command.getMeetingId());
+                result = this.server_state.meeting_manager.addAndClose(
+                    command.getMeetingId(), 
+                    command.getParticipantId()
+                );
+                break;
+                
+            case TOPIC:
+                System.out.println("  → Setting topic " + command.getTopicId() + 
+                                 " for participant " + command.getParticipantId() + 
+                                 " in meeting " + command.getMeetingId());
+                result = this.server_state.meeting_manager.setTopic(
+                    command.getMeetingId(), 
+                    command.getParticipantId(), 
+                    command.getTopicId()
+                );
+                break;
+                
+            case CLOSE:
+                System.out.println("  → Closing meeting " + command.getMeetingId());
+                result = this.server_state.meeting_manager.close(command.getMeetingId());
+                break;
+                
+            case DUMP:
+                System.out.println("  → Dumping meeting state");
+                this.server_state.meeting_manager.dump();
+                result = true; // Dump sempre sucede
+                break;
+                
+            default:
+                System.err.println("  ✗ Unknown command action: " + action);
+                result = false;
+                break;
+        }
+        
+        System.out.println("  → Execution result: " + (result ? "SUCCESS" : "FAILED"));
+        
+    } catch (Exception e) {
+        System.err.println("  ✗ Exception during command execution: " + e.getMessage());
+        result = false;
+    }
+
+    // PASSO 4: Responder ao cliente
+    System.out.println("Sending response to client for command " + next_entry.command_id);
+    request_record.setResponse(result); // Desbloqueia o cliente que estava à espera
+    
+    // PASSO 5: Mover request de "pending" para "processed"
+    this.server_state.req_history.moveToProcessed(next_entry.command_id);
+    System.out.println("✓ Command " + next_entry.command_id + " moved to processed list");
+    
+    System.out.println("=== COMMAND PROCESSING COMPLETE ===\n");
+}
+
+
 }
